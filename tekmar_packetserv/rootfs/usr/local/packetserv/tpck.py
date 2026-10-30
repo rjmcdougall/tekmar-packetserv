@@ -96,13 +96,16 @@ class _TpckRxState:
         self.data = []
         self.cs = 0
         self.i = self.rx_packet()
-        self.underway = True
+        self.underway = False
+        self.escaped = False
 
     # --------------------------------------------------------------------------
     def rx_byte(self):
         """Receive a byte and skip escape characters."""
         if self.byte == _ESC_CODE:
+            self.escaped = True
             yield
+            self.escaped = False
 
     # --------------------------------------------------------------------------
     def rx_packet(self):
@@ -110,6 +113,7 @@ class _TpckRxState:
         # Wait for start of frame.
         while self.byte != _SOF_CODE:
             yield
+        self.underway = True
         yield
 
         # Read the length of the data.
@@ -137,9 +141,8 @@ class _TpckRxState:
         self.cs = self.byte
         yield
 
-        # Read bytes until an end-of-frame is received.
-        while self.byte != _EOF_CODE:
-            yield
+        # Expect end-of-frame immediately after checksum.
+        self.eof_valid = self.byte == _EOF_CODE
 
     # --------------------------------------------------------------------------
     def feed(self, b):
@@ -149,14 +152,16 @@ class _TpckRxState:
         character is recieved while receiving another packet.
         """
         self.byte = b
-        if b == _SOF_CODE and not self.underway:
+        if b == _SOF_CODE and self.underway and not self.escaped:
             self.reset()
+            self.byte = b
             next(self.i)
         else:
             try:
                 next(self.i)
             except StopIteration:
                 self.underway = False
-                if _calc_checksum(self.type, self.data) == self.cs:
+                if self.eof_valid and _calc_checksum(self.type, self.data) == self.cs:
                     return True
+                self.reset()
         return False

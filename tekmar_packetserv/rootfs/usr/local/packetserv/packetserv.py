@@ -162,6 +162,9 @@ class RunSerial(threading.Thread):
                 for r in rl:
                     try:
                         rx_str = r.recv(1024)
+                        if not rx_str:
+                            removals.append(r)
+                            continue
 
                         # Read data, pack it, then send it.
                         for s in [s for s in rx_str.rsplit("\n".encode()) if s]:
@@ -176,15 +179,16 @@ class RunSerial(threading.Thread):
                         # list, but can't be read from.
                         removals.append(r)
 
-                for w in wl:
-                    # Write received data to connected sockets that are still
-                    # alive.
-                    if w not in removals:
-                        try:
-                            w.send(send_data.encode())
+                if send_data:
+                    for w in wl:
+                        # Write received data to connected sockets that are still
+                        # alive.
+                        if w not in removals:
+                            try:
+                                w.send(send_data.encode())
 
-                        except socket.error:
-                            removals.append(w)
+                            except socket.error:
+                                removals.append(w)
 
                 # Remove dead and dying sockets from the connection list.
                 self.connections.lock.acquire()
